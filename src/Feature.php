@@ -147,6 +147,7 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
     {
         $schemaService = $container->get(SchemaGeneratorService::class);
         $metadata = $parameters['metadata'] ?? [];
+        $noLlms = !empty($metadata['no_llms']);
 
         $schema = [
             '@context' => 'https://schema.org',
@@ -176,14 +177,16 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         $siteBaseUrl = rtrim((string)($container->getVariable('SITE_BASE_URL') ?? '/'), '/');
 
         // Add the standard llms.txt discovery link using the proper base URL
-        $scripts .= "\n<link rel=\"llms\" href=\"{$siteBaseUrl}/llms.txt\">\n";
+        if (!$noLlms) {
+            $scripts .= "\n<link rel=\"llms\" href=\"{$siteBaseUrl}/llms.txt\">\n";
+        }
 
         // Inject the tags into the head of the document
         if (isset($parameters['rendered_content'])) {
             $parameters['rendered_content'] = str_replace('</head>', $scripts . "\n</head>", $parameters['rendered_content']);
         }
 
-        if (isset($parameters['file_path']) && isset($parameters['output_path'])) {
+        if (!$noLlms && isset($parameters['file_path']) && isset($parameters['output_path'])) {
             $sourcePath = $parameters['file_path'];
             if (pathinfo($sourcePath, PATHINFO_EXTENSION) === 'md') {
                 $publicPath = $parameters['output_path'];
@@ -212,8 +215,8 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             }
         }
 
-        // Validate the URL. If it's empty, or contains internal filesystem paths, skip it entirely.
-        if (!empty($url) && !str_starts_with($url, '//') && !str_contains($url, $appRoot)) {
+        // Validate the URL. If it's empty, contains internal filesystem paths, or page is excluded, skip it entirely.
+        if (!$noLlms && !empty($url) && !str_starts_with($url, '//') && !str_contains($url, $appRoot)) {
             $title = $metadata['title'] ?? 'Untitled';
             $summary = $parameters['aeo_summary'] ?? '';
 
