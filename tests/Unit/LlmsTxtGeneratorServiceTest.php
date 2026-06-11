@@ -41,4 +41,38 @@ class LlmsTxtGeneratorServiceTest extends TestCase
         $this->assertStringContainsString('- [About Us](/about): This is the about page summary.', $content);
         $this->assertStringContainsString('- [Contact Us](/contact): This is the contact page summary.', $content);
     }
+
+    public function testGeneratePopulatesDescriptionFromFrontmatter(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage(
+            'https://example.com/page.md',
+            'Page Title',
+            'The page description from frontmatter.'
+        );
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir);
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString(
+            '- [Page Title](https://example.com/page.md): The page description from frontmatter.',
+            $content
+        );
+    }
+
+    public function testGenerateWithEmptyDescriptionLeavesColonTrailing(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('https://example.com/page.md', 'Page Title', '');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir);
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString(
+            '- [Page Title](https://example.com/page.md): ',
+            $content
+        );
+    }
 }

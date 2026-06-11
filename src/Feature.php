@@ -10,6 +10,7 @@ use EICC\StaticForge\Core\FeatureInterface;
 use Calevans\AnswerEngineOptimization\Services\SchemaGeneratorService;
 use Calevans\AnswerEngineOptimization\Services\LlmsTxtGeneratorService;
 use Calevans\AnswerEngineOptimization\Services\AeoExtractorService;
+use Calevans\AnswerEngineOptimization\Services\FaqDataService;
 use Calevans\AnswerEngineOptimization\Shortcodes\FaqShortcode;
 use EICC\Utils\Container;
 
@@ -17,7 +18,6 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
 {
     private Container $container;
     private array $config = [];
-    private array $fullConfig = [];
     private FaqShortcode $faqShortcode;
 
     public function __construct()
@@ -32,7 +32,6 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
 
     public function configure(array $config): void
     {
-        $this->fullConfig = $config;
         $this->config = $config['answer_engine_optimization'] ?? [];
     }
 
@@ -59,10 +58,12 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         $schemaService = new SchemaGeneratorService($logger);
         $extractorService = new AeoExtractorService($logger);
         $llmsTxtService = new LlmsTxtGeneratorService($logger);
+        $faqDataService = new FaqDataService($logger);
 
         $this->container->add(SchemaGeneratorService::class, $schemaService);
         $this->container->add(AeoExtractorService::class, $extractorService);
         $this->container->add(LlmsTxtGeneratorService::class, $llmsTxtService);
+        $this->container->add(FaqDataService::class, $faqDataService);
 
         if ($this->container->has(\EICC\StaticForge\Shortcodes\ShortcodeManager::class)) {
             $this->container->get(\EICC\StaticForge\Shortcodes\ShortcodeManager::class)->register($this->faqShortcode);
@@ -113,7 +114,13 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
 
         $faqs = $metadata['aeo']['faqs'] ?? [];
         $shortcodeFaqs = $this->faqShortcode->getFaqs();
-        $allFaqs = array_merge($faqs, $shortcodeFaqs);
+
+        $faqDataService = $container->get(FaqDataService::class);
+        $appRoot = (string) ($container->getVariable('app_root') ?? '');
+        $faqDataService->load($appRoot, $this->config['faq_data_file'] ?? null);
+        $dataFaqs = $faqDataService->resolve($html);
+
+        $allFaqs = array_merge($faqs, $shortcodeFaqs, $dataFaqs);
 
         if (!empty($allFaqs)) {
             $faqSchema = [
@@ -131,7 +138,10 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
                     ]
                 ];
             }
-            $parameters['aeo_faq_schema'] = $faqSchema;
+            // Store in metadata so it survives the MARKDOWN_CONVERTED → POST_RENDER boundary.
+            // The MarkdownRendererService only forwards 'html_content' and 'metadata' from
+            // MARKDOWN_CONVERTED results; top-level parameters are dropped.
+            $parameters['metadata']['aeo_faq_schema'] = $faqSchema;
         }
 
         $extractorService = $container->get(AeoExtractorService::class);
@@ -149,6 +159,8 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         $metadata = $parameters['metadata'] ?? [];
         $noLlms = !empty($metadata['no_llms']);
 
+        $siteConfig = $container->getVariable('site_config') ?? [];
+
         $schema = [
             '@context' => 'https://schema.org',
             '@type' => 'Article',
@@ -156,12 +168,12 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             'dateModified' => $metadata['article_modified_time'] ?? date('c'),
             'publisher' => [
                 '@type' => 'Organization',
-                'name' => $this->fullConfig['site']['name'] ?? 'Untitled Site',
+                'name' => $siteConfig['site']['name'] ?? 'Untitled Site',
             ]
         ];
 
         // Add logo to publisher if defined via SocialMetadata configuration
-        $logo = $this->fullConfig['social']['default_image'] ?? null;
+        $logo = $siteConfig['social']['default_image'] ?? null;
         if ($logo) {
             $schema['publisher']['logo'] = [
                 '@type' => 'ImageObject',
@@ -170,8 +182,9 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         }
 
         $scripts = $schemaService->generate($schema);
-        if (!empty($parameters['aeo_faq_schema'])) {
-            $scripts .= "\n" . $schemaService->generate($parameters['aeo_faq_schema']);
+        $faqSchema = $parameters['metadata']['aeo_faq_schema'] ?? $parameters['aeo_faq_schema'] ?? null;
+        if (!empty($faqSchema)) {
+            $scripts .= "\n" . $schemaService->generate($faqSchema);
         }
 
         $siteBaseUrl = rtrim((string)($container->getVariable('SITE_BASE_URL') ?? '/'), '/');
@@ -218,7 +231,7 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         // Validate the URL. If it's empty, contains internal filesystem paths, or page is excluded, skip it entirely.
         if (!$noLlms && !empty($url) && !str_starts_with($url, '//') && !str_contains($url, $appRoot)) {
             $title = $metadata['title'] ?? 'Untitled';
-            $summary = $parameters['aeo_summary'] ?? '';
+            $summary = $parameters['aeo_summary'] ?? $metadata['description'] ?? '';
 
             // If this was originally a Markdown file, point the AI directly to the clean .md copy we generated
             if (isset($parameters['file_path']) && pathinfo($parameters['file_path'], PATHINFO_EXTENSION) === 'md') {
@@ -238,7 +251,10 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         $outputDir = $container->getVariable('OUTPUT_DIR');
 
         if (is_string($outputDir) && $outputDir !== '' && $llmsTxtService->hasPages()) {
-            $llmsTxtService->generate($outputDir);
+            $siteConfig      = $container->getVariable('site_config') ?? [];
+            $siteName        = (string) ($siteConfig['site']['name'] ?? '');
+            $siteDescription = (string) ($siteConfig['site']['tagline'] ?? $siteConfig['site']['description'] ?? '');
+            $llmsTxtService->generate($outputDir, $siteName, $siteDescription);
         }
 
         return $parameters;

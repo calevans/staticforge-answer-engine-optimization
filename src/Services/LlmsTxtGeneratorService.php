@@ -28,13 +28,21 @@ class LlmsTxtGeneratorService
         return !empty($this->pages);
     }
 
-    public function generate(string $outputDir): void
+    public function generate(string $outputDir, string $siteName = '', string $siteDescription = ''): void
     {
         if (empty($outputDir)) {
             throw new \InvalidArgumentException("Output directory cannot be empty.");
         }
 
-        $content = "# LLMs Documentation\n\n";
+        $title = $siteName !== '' ? $siteName : 'LLMs Documentation';
+        $content = "# {$title}\n\n";
+
+        if ($siteDescription !== '') {
+            $content .= "> {$siteDescription}\n\n";
+        }
+
+        $content .= "## Pages\n\n";
+
         foreach ($this->pages as $page) {
             $content .= "- [{$page['title']}]({$page['url']}): {$page['summary']}\n";
         }
