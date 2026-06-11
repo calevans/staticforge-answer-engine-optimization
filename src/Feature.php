@@ -159,7 +159,18 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         $metadata = $parameters['metadata'] ?? [];
         $noLlms = !empty($metadata['no_llms']);
 
-        $siteConfig = $container->getVariable('site_config') ?? [];
+        $siteConfig  = $container->getVariable('site_config') ?? [];
+        $siteBaseUrl = rtrim((string)($container->getVariable('SITE_BASE_URL') ?? '/'), '/');
+        $appRoot     = rtrim((string)($container->getVariable('app_root') ?? ''), '/');
+
+        // Build the canonical HTML URL for this page once; reused for breadcrumb and llms.txt
+        $pageUrl = $parameters['file_url'] ?? '';
+        if (empty($pageUrl) && !empty($parameters['output_path']) && !empty($appRoot)) {
+            $publicPath = $appRoot . '/public/';
+            if (str_starts_with($parameters['output_path'], $publicPath)) {
+                $pageUrl = $siteBaseUrl . '/' . ltrim(substr($parameters['output_path'], strlen($publicPath)), '/');
+            }
+        }
 
         $schema = [
             '@context' => 'https://schema.org',
@@ -172,7 +183,6 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             ]
         ];
 
-        // Add logo to publisher if defined via SocialMetadata configuration
         $logo = $siteConfig['social']['default_image'] ?? null;
         if ($logo) {
             $schema['publisher']['logo'] = [
@@ -182,14 +192,40 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         }
 
         $scripts = $schemaService->generate($schema);
+
         $faqSchema = $parameters['metadata']['aeo_faq_schema'] ?? $parameters['aeo_faq_schema'] ?? null;
         if (!empty($faqSchema)) {
             $scripts .= "\n" . $schemaService->generate($faqSchema);
         }
 
-        $siteBaseUrl = rtrim((string)($container->getVariable('SITE_BASE_URL') ?? '/'), '/');
+        // BreadcrumbList — skip on the home page (index.html)
+        $homeUrl = $siteBaseUrl . '/';
+        $isHomePage = !empty($pageUrl) && (
+            rtrim($pageUrl, '/') === rtrim($homeUrl, '/') ||
+            str_ends_with($pageUrl, '/index.html')
+        );
+        if (!empty($pageUrl) && !$isHomePage && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
+            $breadcrumb = [
+                '@context' => 'https://schema.org',
+                '@type' => 'BreadcrumbList',
+                'itemListElement' => [
+                    [
+                        '@type' => 'ListItem',
+                        'position' => 1,
+                        'name' => 'Home',
+                        'item' => $homeUrl,
+                    ],
+                    [
+                        '@type' => 'ListItem',
+                        'position' => 2,
+                        'name' => $metadata['title'] ?? 'Untitled',
+                        'item' => $pageUrl,
+                    ],
+                ],
+            ];
+            $scripts .= "\n" . $schemaService->generate($breadcrumb);
+        }
 
-        // Add the standard llms.txt discovery link using the proper base URL
         if (!$noLlms) {
             $scripts .= "\n<link rel=\"llms\" href=\"{$siteBaseUrl}/llms.txt\">\n";
         }
@@ -216,30 +252,19 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             }
         }
 
-        $url = $parameters['file_url'] ?? '';
-        $appRoot = rtrim((string)($container->getVariable('app_root') ?? ''), '/');
-
-        // Fallback: Calculate clean full path from output_path if no URL is provided
-        if (empty($url) && !empty($parameters['output_path']) && !empty($appRoot)) {
-            $publicPath = $appRoot . '/public/';
-            if (str_starts_with($parameters['output_path'], $publicPath)) {
-                $base = rtrim((string)($container->getVariable('SITE_BASE_URL') ?? '/'), '/');
-                $url = $base . '/' . ltrim(substr($parameters['output_path'], strlen($publicPath)), '/');
-            }
-        }
-
         // Validate the URL. If it's empty, contains internal filesystem paths, or page is excluded, skip it entirely.
-        if (!$noLlms && !empty($url) && !str_starts_with($url, '//') && !str_contains($url, $appRoot)) {
+        if (!$noLlms && !empty($pageUrl) && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
             $title = $metadata['title'] ?? 'Untitled';
             $summary = $parameters['aeo_summary'] ?? $metadata['description'] ?? '';
 
-            // If this was originally a Markdown file, point the AI directly to the clean .md copy we generated
+            // Point the AI directly to the clean .md copy we generated
+            $llmsUrl = $pageUrl;
             if (isset($parameters['file_path']) && pathinfo($parameters['file_path'], PATHINFO_EXTENSION) === 'md') {
-                $url = preg_replace('/\.html$/', '.md', $url);
+                $llmsUrl = preg_replace('/\.html$/', '.md', $pageUrl);
             }
 
             $llmsTxtService = $container->get(LlmsTxtGeneratorService::class);
-            $llmsTxtService->addPage($url, $title, $summary);
+            $llmsTxtService->addPage($llmsUrl, $title, $summary);
         }
 
         return $parameters;
