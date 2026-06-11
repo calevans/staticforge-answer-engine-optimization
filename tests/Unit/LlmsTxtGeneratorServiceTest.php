@@ -30,12 +30,12 @@ class LlmsTxtGeneratorServiceTest extends TestCase
         $service = new LlmsTxtGeneratorService();
         $service->addPage('/about', 'About Us', 'This is the about page summary.');
         $service->addPage('/contact', 'Contact Us', 'This is the contact page summary.');
-        
+
         $outputDir = $this->tempDir . '/public';
         $service->generate($outputDir);
-        
+
         $this->assertFileExists($outputDir . '/llms.txt');
-        
+
         $content = file_get_contents($outputDir . '/llms.txt');
         $this->assertStringContainsString('# LLMs Documentation', $content);
         $this->assertStringContainsString('- [About Us](/about): This is the about page summary.', $content);
