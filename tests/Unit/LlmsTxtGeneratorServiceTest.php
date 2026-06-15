@@ -38,8 +38,8 @@ class LlmsTxtGeneratorServiceTest extends TestCase
 
         $content = file_get_contents($outputDir . '/llms.txt');
         $this->assertStringContainsString('# LLMs Documentation', $content);
-        $this->assertStringContainsString("## About Us\n\n[About Us](/about)\n\nThis is the about page summary.", $content);
-        $this->assertStringContainsString("## Contact Us\n\n[Contact Us](/contact)\n\nThis is the contact page summary.", $content);
+        $this->assertStringContainsString("## About Us\n\n- [About Us](/about): This is the about page summary.", $content);
+        $this->assertStringContainsString("## Contact Us\n\n- [Contact Us](/contact): This is the contact page summary.", $content);
     }
 
     public function testGeneratePopulatesDescriptionFromFrontmatter(): void
@@ -55,7 +55,7 @@ class LlmsTxtGeneratorServiceTest extends TestCase
         $service->generate($outputDir);
 
         $content = file_get_contents($outputDir . '/llms.txt');
-        $this->assertStringContainsString("## Page Title\n\n[Page Title](https://example.com/page.md)\n\nThe page description from frontmatter.", $content);
+        $this->assertStringContainsString("## Page Title\n\n- [Page Title](https://example.com/page.md): The page description from frontmatter.", $content);
     }
 
     public function testGenerateWithEmptyDescriptionOmitsSummaryLine(): void
@@ -67,7 +67,7 @@ class LlmsTxtGeneratorServiceTest extends TestCase
         $service->generate($outputDir);
 
         $content = file_get_contents($outputDir . '/llms.txt');
-        $this->assertStringContainsString("## Page Title\n\n[Page Title](https://example.com/page.md)\n\n", $content);
+        $this->assertStringContainsString("## Page Title\n\n- [Page Title](https://example.com/page.md)\n\n", $content);
         $this->assertStringNotContainsString('[Page Title](https://example.com/page.md): ', $content);
     }
 
@@ -143,7 +143,7 @@ class LlmsTxtGeneratorServiceTest extends TestCase
 
         $content = file_get_contents($outputDir . '/llms.txt');
         $this->assertStringContainsString('## Home Features & Upgrades', $content);
-        $this->assertStringContainsString('[Home Features & Upgrades | My Site](/features)', $content);
+        $this->assertStringContainsString('- [Home Features & Upgrades | My Site](/features): Features summary.', $content);
         $this->assertStringNotContainsString('## Home Features & Upgrades | My Site', $content);
     }
 }

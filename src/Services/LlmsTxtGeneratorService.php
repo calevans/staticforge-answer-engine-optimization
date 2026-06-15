@@ -44,10 +44,11 @@ class LlmsTxtGeneratorService
         foreach ($this->pages as $page) {
             $sectionName = strstr($page['title'], ' | ', true) ?: $page['title'];
             $content .= "## {$sectionName}\n\n";
-            $content .= "[{$page['title']}]({$page['url']})\n\n";
+            $content .= "- [{$page['title']}]({$page['url']})";
             if ($page['summary'] !== '') {
-                $content .= "{$page['summary']}\n\n";
+                $content .= ": {$page['summary']}";
             }
+            $content .= "\n\n";
         }
 
         if (!is_dir($outputDir)) {
