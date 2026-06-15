@@ -38,8 +38,8 @@ class LlmsTxtGeneratorServiceTest extends TestCase
 
         $content = file_get_contents($outputDir . '/llms.txt');
         $this->assertStringContainsString('# LLMs Documentation', $content);
-        $this->assertStringContainsString('- [About Us](/about): This is the about page summary.', $content);
-        $this->assertStringContainsString('- [Contact Us](/contact): This is the contact page summary.', $content);
+        $this->assertStringContainsString("## About Us\n\n[About Us](/about)\n\nThis is the about page summary.", $content);
+        $this->assertStringContainsString("## Contact Us\n\n[Contact Us](/contact)\n\nThis is the contact page summary.", $content);
     }
 
     public function testGeneratePopulatesDescriptionFromFrontmatter(): void
@@ -55,13 +55,10 @@ class LlmsTxtGeneratorServiceTest extends TestCase
         $service->generate($outputDir);
 
         $content = file_get_contents($outputDir . '/llms.txt');
-        $this->assertStringContainsString(
-            '- [Page Title](https://example.com/page.md): The page description from frontmatter.',
-            $content
-        );
+        $this->assertStringContainsString("## Page Title\n\n[Page Title](https://example.com/page.md)\n\nThe page description from frontmatter.", $content);
     }
 
-    public function testGenerateWithEmptyDescriptionLeavesColonTrailing(): void
+    public function testGenerateWithEmptyDescriptionOmitsSummaryLine(): void
     {
         $service = new LlmsTxtGeneratorService();
         $service->addPage('https://example.com/page.md', 'Page Title', '');
@@ -70,9 +67,83 @@ class LlmsTxtGeneratorServiceTest extends TestCase
         $service->generate($outputDir);
 
         $content = file_get_contents($outputDir . '/llms.txt');
-        $this->assertStringContainsString(
-            '- [Page Title](https://example.com/page.md): ',
-            $content
-        );
+        $this->assertStringContainsString("## Page Title\n\n[Page Title](https://example.com/page.md)\n\n", $content);
+        $this->assertStringNotContainsString('[Page Title](https://example.com/page.md): ', $content);
+    }
+
+    public function testGenerateUsesSiteNameAsTitle(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('/about', 'About Us', 'About summary.');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir, 'Acme Corp');
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString('# Acme Corp', $content);
+        $this->assertStringNotContainsString('# LLMs Documentation', $content);
+    }
+
+    public function testGenerateDefaultsTitleWhenSiteNameEmpty(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('/about', 'About Us', 'About summary.');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir, '');
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString('# LLMs Documentation', $content);
+    }
+
+    public function testGenerateIncludesSiteDescriptionBlockquote(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('/about', 'About Us', 'About summary.');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir, 'Acme Corp', 'We build great things.');
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString('> We build great things.', $content);
+    }
+
+    public function testGenerateOmitsBlockquoteWhenDescriptionEmpty(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('/about', 'About Us', 'About summary.');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir, 'Acme Corp', '');
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringNotContainsString('>', $content);
+    }
+
+    public function testGenerateEachPageHasOwnSection(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('/about', 'About Us', 'About summary.');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir);
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString('## About Us', $content);
+        $this->assertStringNotContainsString('## Pages', $content);
+    }
+
+    public function testGenerateSectionNameTrimmedAtPipe(): void
+    {
+        $service = new LlmsTxtGeneratorService();
+        $service->addPage('/features', 'Home Features & Upgrades | My Site', 'Features summary.');
+
+        $outputDir = $this->tempDir . '/public';
+        $service->generate($outputDir);
+
+        $content = file_get_contents($outputDir . '/llms.txt');
+        $this->assertStringContainsString('## Home Features & Upgrades', $content);
+        $this->assertStringContainsString('[Home Features & Upgrades | My Site](/features)', $content);
+        $this->assertStringNotContainsString('## Home Features & Upgrades | My Site', $content);
     }
 }

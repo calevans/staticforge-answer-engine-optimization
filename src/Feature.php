@@ -83,7 +83,12 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         }
 
         $rules = $parameters['rules'];
-        $aiBots = ['OAI-SearchBot', 'ChatGPT-User', 'Google-Extended', 'Anthropic-ai', 'Claude-Web'];
+        $aiBots = [
+            'OAI-SearchBot', 'ChatGPT-User', 'GPTBot',
+            'Anthropic-ai', 'Claude-Web', 'ClaudeBot',
+            'Google-Extended', 'PerplexityBot',
+            'cohere-ai', 'Bytespider', 'Applebot-Extended',
+        ];
         foreach ($aiBots as $bot) {
             if (!isset($rules[$bot])) {
                 $rules[$bot] = ['Allow' => ['/']];
@@ -225,6 +230,8 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             ];
             $scripts .= "\n" . $schemaService->generate($breadcrumb);
         }
+
+        $scripts .= "\n<link rel=\"sitemap\" type=\"application/xml\" href=\"{$siteBaseUrl}/sitemap.xml\">";
 
         if (!$noLlms) {
             $scripts .= "\n<link rel=\"llms\" href=\"{$siteBaseUrl}/llms.txt\">\n";
