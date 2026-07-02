@@ -6,14 +6,19 @@ A StaticForge feature package that optimises your site for AI-powered answer eng
 
 ```bash
 composer require calevans/AnswerEngineOptimization
+staticforge feature:setup calevans/answer-engine-optimization
 ```
+
+`feature:setup` copies this package's [siteconfig.yaml.example](siteconfig.yaml.example) into your site root as `siteconfig.yaml.example.answer-engine-optimization` — merge the keys you need into your site's real `siteconfig.yaml`.
+
+**This plugin does not generate your site's identity schema** (`Organization`/`LocalBusiness`/`PodcastSeries`/etc.). That data — your business name, address, social profiles — doesn't change per page or per build, so it belongs as a single hand-written JSON-LD `<script>` block in your theme's `<head>` partial, not in build-time plugin config. This plugin only handles things that genuinely vary per page or need aggregating across a build: Article/BreadcrumbList/FAQPage schema, `llms.txt`, the AI-bot `robots.txt` allowlist, and the `.md` mirror.
 
 ## Features
 
 | Feature | Description |
 |---|---|
 | AI-bot `robots.txt` | Adds `Allow: /` rules for `OAI-SearchBot`, `ChatGPT-User`, `Google-Extended`, `Anthropic-ai`, and `Claude-Web` |
-| Article JSON-LD | Injects `Article` structured data into every page `<head>` |
+| Article JSON-LD | Injects `Article` structured data into every page `<head>` (headline/dateModified/publisher fields are omitted, not fabricated, when the underlying data is unavailable) |
 | BreadcrumbList JSON-LD | Injects `BreadcrumbList` structured data on all non-home pages |
 | FAQ JSON-LD | Injects `FAQPage` structured data from frontmatter, `[faq]` shortcodes, or a shared JSON data file |
 | `llms.txt` | Generates a site-wide `llms.txt` index for AI crawlers, with a titled header and per-page descriptions |
@@ -40,6 +45,28 @@ social:
 answer_engine_optimization:
   faq_data_file: content/assets/faq.json  # Path (relative to project root) to the shared FAQ JSON data file.
                                            # Defaults to `content/assets/faq.json` when not set.
+```
+
+### Identity schema belongs in your theme, not here
+
+`Organization`, `LocalBusiness`, `PodcastSeries`, or whatever schema.org type
+identifies *your site as an entity* is the same on every page and every build —
+it's not build-pipeline data. Add it once as a JSON-LD `<script>` block in your
+theme's `<head>` partial. Example for a podcast site:
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "PodcastSeries",
+  "name": "Hearts N Tales",
+  "description": "An anthology audio drama podcast.",
+  "url": "https://heartsntales.com",
+  "author": {"@type": "Person", "name": "Cal Evans"},
+  "webFeed": "https://heartsntales.com/feed.xml",
+  "sameAs": ["https://podcasts.apple.com/us/podcast/hearts-n-tales"]
+}
+</script>
 ```
 
 ### Per-page frontmatter

@@ -177,23 +177,26 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             }
         }
 
-        $schema = [
-            '@context' => 'https://schema.org',
-            '@type' => 'Article',
-            'headline' => $metadata['title'] ?? 'Untitled',
-            'dateModified' => $metadata['article_modified_time'] ?? date('c'),
-            'publisher' => [
-                '@type' => 'Organization',
-                'name' => $siteConfig['site']['name'] ?? 'Untitled Site',
-            ]
-        ];
+        // Omit rather than fabricate: a title-less headline or a build-time
+        // "modified now" timestamp would be schema-valid but false, which is
+        // exactly the kind of noise that makes AI tools distrust a site's data.
+        $schema = ['@context' => 'https://schema.org', '@type' => 'Article'];
 
-        $logo = $siteConfig['social']['default_image'] ?? null;
-        if ($logo) {
-            $schema['publisher']['logo'] = [
-                '@type' => 'ImageObject',
-                'url' => $logo
-            ];
+        if (($title = $metadata['title'] ?? null) !== null && $title !== '') {
+            $schema['headline'] = $title;
+        }
+        if (($modified = $metadata['article_modified_time'] ?? null) !== null && $modified !== '') {
+            $schema['dateModified'] = $modified;
+        }
+
+        $siteName = $siteConfig['site']['name'] ?? null;
+        if (is_string($siteName) && $siteName !== '') {
+            $publisher = ['@type' => 'Organization', 'name' => $siteName];
+            $logo = $siteConfig['social']['default_image'] ?? null;
+            if ($logo) {
+                $publisher['logo'] = ['@type' => 'ImageObject', 'url' => $logo];
+            }
+            $schema['publisher'] = $publisher;
         }
 
         $scripts = $schemaService->generate($schema);
@@ -209,7 +212,8 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             rtrim($pageUrl, '/') === rtrim($homeUrl, '/') ||
             str_ends_with($pageUrl, '/index.html')
         );
-        if (!empty($pageUrl) && !$isHomePage && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
+        $pageTitle = $metadata['title'] ?? null;
+        if (!empty($pageUrl) && !$isHomePage && $pageTitle !== null && $pageTitle !== '' && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
             $breadcrumb = [
                 '@context' => 'https://schema.org',
                 '@type' => 'BreadcrumbList',
@@ -223,7 +227,7 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
                     [
                         '@type' => 'ListItem',
                         'position' => 2,
-                        'name' => $metadata['title'] ?? 'Untitled',
+                        'name' => $pageTitle,
                         'item' => $pageUrl,
                     ],
                 ],
@@ -259,9 +263,9 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             }
         }
 
-        // Validate the URL. If it's empty, contains internal filesystem paths, or page is excluded, skip it entirely.
-        if (!$noLlms && !empty($pageUrl) && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
-            $title = $metadata['title'] ?? 'Untitled';
+        // Validate the URL. If it's empty, contains internal filesystem paths, has no title, or page is excluded, skip it entirely.
+        if (!$noLlms && !empty($pageUrl) && !empty($metadata['title']) && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
+            $title = $metadata['title'];
             $summary = $parameters['aeo_summary'] ?? $metadata['description'] ?? '';
 
             // Point the AI directly to the clean .md copy we generated

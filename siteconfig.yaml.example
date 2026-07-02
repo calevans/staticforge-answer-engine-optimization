@@ -1,0 +1,21 @@
+# Example siteconfig.yaml entries for the AnswerEngineOptimization feature.
+# Copy what you need into your site's real siteconfig.yaml. Every key here is
+# optional; the plugin works with sensible defaults when they're absent.
+
+site:
+  name: "My Site"
+  tagline: "A one-line description of the site."
+  # description: "..."   # fallback for tagline if tagline is absent
+
+social:
+  default_image: "https://example.com/logo.png"
+
+answer_engine_optimization:
+  faq_data_file: content/assets/faq.json
+
+# NOTE: This plugin does NOT generate identity schema (Organization,
+# LocalBusiness, PodcastSeries, etc.) — that data is the same on every page
+# and every build, so it belongs as a single hand-written JSON-LD <script>
+# block in your theme's <head> partial, not in this config file. See
+# README.md's "Identity schema belongs in your theme, not here" section for
+# a worked example.
