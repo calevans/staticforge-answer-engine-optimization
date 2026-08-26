@@ -25,6 +25,5 @@
         "staticforge": {
             "feature": "Calevans\\AnswerEngineOptimization\\Feature"
         }
-    },
-    "version": "3.0.0"
+    }
 }
