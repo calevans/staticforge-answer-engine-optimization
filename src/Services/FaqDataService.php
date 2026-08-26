@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Calevans\AnswerEngineOptimization\Services;
 
+use EICC\Utils\Log;
+
 /**
  * Loads and indexes a JSON FAQ data file, then resolves data-faq attribute
  * references found in rendered HTML into structured question/answer pairs
@@ -21,12 +23,12 @@ namespace Calevans\AnswerEngineOptimization\Services;
  */
 class FaqDataService
 {
-    private $logger;
+    private ?Log $logger;
 
     /** @var array<string, array{question: string, answer: string}>|null */
     private ?array $index = null;
 
-    public function __construct($logger = null)
+    public function __construct(?Log $logger = null)
     {
         $this->logger = $logger;
     }

@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Calevans\AnswerEngineOptimization;
 
+use EICC\StaticForge\Core\BaseFeature;
 use EICC\StaticForge\Core\ConfigurableFeatureInterface;
+use EICC\StaticForge\Core\Events\Event;
+use EICC\StaticForge\Core\Events\EventListener;
+use EICC\StaticForge\Core\Events\RenderEvent;
+use EICC\StaticForge\Core\Events\RobotsTxtBuildingEvent;
 use EICC\StaticForge\Core\EventManager;
 use EICC\StaticForge\Core\FeatureInterface;
 use Calevans\AnswerEngineOptimization\Services\SchemaGeneratorService;
@@ -14,22 +19,36 @@ use Calevans\AnswerEngineOptimization\Services\FaqDataService;
 use Calevans\AnswerEngineOptimization\Shortcodes\FaqShortcode;
 use EICC\Utils\Container;
 
-class Feature implements FeatureInterface, ConfigurableFeatureInterface
+class Feature extends BaseFeature implements FeatureInterface, ConfigurableFeatureInterface
 {
-    private Container $container;
+    protected string $name = 'AnswerEngineOptimization';
+    /** @var array<string, mixed> */
     private array $config = [];
     private FaqShortcode $faqShortcode;
+    private SchemaGeneratorService $schemaService;
+    private AeoExtractorService $extractorService;
+    private LlmsTxtGeneratorService $llmsTxtService;
+    private FaqDataService $faqDataService;
 
-    public function __construct()
-    {
-        $this->faqShortcode = new FaqShortcode();
-    }
-
-    public function setContainer(Container $container): void
-    {
+    public function __construct(
+        Container $container,
+        SchemaGeneratorService $schemaService,
+        AeoExtractorService $extractorService,
+        LlmsTxtGeneratorService $llmsTxtService,
+        FaqDataService $faqDataService,
+        FaqShortcode $faqShortcode
+    ) {
         $this->container = $container;
+        $this->schemaService = $schemaService;
+        $this->extractorService = $extractorService;
+        $this->llmsTxtService = $llmsTxtService;
+        $this->faqDataService = $faqDataService;
+        $this->faqShortcode = $faqShortcode;
     }
 
+    /**
+     * @param array<string, mixed> $config
+     */
     public function configure(array $config): void
     {
         $this->config = $config['answer_engine_optimization'] ?? [];
@@ -45,44 +64,18 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         return [];
     }
 
-    public function getName(): string
+    public function register(EventManager $eventManager): void
     {
-        return 'AnswerEngineOptimization';
-    }
-
-    public function register(EventManager $events): void
-    {
-        $logger = $this->container->has('logger') ? $this->container->get('logger') : null;
-        $appRoot = $this->container->getVariable('app_root') ?? '';
-
-        $schemaService = new SchemaGeneratorService($logger);
-        $extractorService = new AeoExtractorService($logger);
-        $llmsTxtService = new LlmsTxtGeneratorService($logger);
-        $faqDataService = new FaqDataService($logger);
-
-        $this->container->add(SchemaGeneratorService::class, $schemaService);
-        $this->container->add(AeoExtractorService::class, $extractorService);
-        $this->container->add(LlmsTxtGeneratorService::class, $llmsTxtService);
-        $this->container->add(FaqDataService::class, $faqDataService);
+        parent::register($eventManager);
 
         if ($this->container->has(\EICC\StaticForge\Shortcodes\ShortcodeManager::class)) {
             $this->container->get(\EICC\StaticForge\Shortcodes\ShortcodeManager::class)->register($this->faqShortcode);
         }
-
-        $events->registerListener('ROBOTS_TXT_BUILDING', [$this, 'onRobotsTxtBuilding'], 50);
-        $events->registerListener('PRE_RENDER', [$this, 'onPreRender'], 50);
-        $events->registerListener('MARKDOWN_CONVERTED', [$this, 'onMarkdownConverted'], 50);
-        $events->registerListener('POST_RENDER', [$this, 'onPostRender'], 50);
-        $events->registerListener('POST_LOOP', [$this, 'onPostLoop'], 50);
     }
 
-    public function onRobotsTxtBuilding(Container $container, array $parameters): array
+    #[EventListener('ROBOTS_TXT_BUILDING', priority: 50)]
+    public function onRobotsTxtBuilding(RobotsTxtBuildingEvent $event): void
     {
-        if (!isset($parameters['rules'])) {
-            return $parameters;
-        }
-
-        $rules = $parameters['rules'];
         $aiBots = [
             'OAI-SearchBot', 'ChatGPT-User', 'GPTBot',
             'Anthropic-ai', 'Claude-Web', 'ClaudeBot',
@@ -90,40 +83,40 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             'cohere-ai', 'Bytespider', 'Applebot-Extended',
         ];
         foreach ($aiBots as $bot) {
-            if (!isset($rules[$bot])) {
-                $rules[$bot] = ['Allow' => ['/']];
+            if (!isset($event->rules[$bot])) {
+                $event->rules[$bot] = ['Allow' => ['/']];
             }
         }
-        $parameters['rules'] = $rules;
-        return $parameters;
     }
 
-    public function onPreRender(Container $container, array $parameters): array
+    #[EventListener('PRE_RENDER', priority: 50)]
+    public function onPreRender(RenderEvent $event): void
     {
-        if ($container->has(\EICC\StaticForge\Shortcodes\ShortcodeManager::class)) {
-            $manager = $container->get(\EICC\StaticForge\Shortcodes\ShortcodeManager::class);
+        if ($this->container->has(\EICC\StaticForge\Shortcodes\ShortcodeManager::class)) {
+            $manager = $this->container->get(\EICC\StaticForge\Shortcodes\ShortcodeManager::class);
             $manager->register($this->faqShortcode);
         }
 
-        if (isset($parameters['file_path']) && file_exists($parameters['file_path'])) {
-            $parameters['metadata']['article_modified_time'] = date('c', filemtime($parameters['file_path']));
+        if ($event->filePath !== '' && file_exists($event->filePath)) {
+            $mtime = filemtime($event->filePath);
+            if ($mtime !== false) {
+                $event->metadata['article_modified_time'] = date('c', $mtime);
+            }
         }
-
-        return $parameters;
     }
 
-    public function onMarkdownConverted(Container $container, array $parameters): array
+    #[EventListener('MARKDOWN_CONVERTED', priority: 50)]
+    public function onMarkdownConverted(RenderEvent $event): void
     {
-        $html = $parameters['html_content'] ?? '';
-        $metadata = $parameters['metadata'] ?? [];
+        $html = $event->renderedContent ?? '';
+        $metadata = $event->metadata;
 
         $faqs = $metadata['aeo']['faqs'] ?? [];
         $shortcodeFaqs = $this->faqShortcode->getFaqs();
 
-        $faqDataService = $container->get(FaqDataService::class);
-        $appRoot = (string) ($container->getVariable('app_root') ?? '');
-        $faqDataService->load($appRoot, $this->config['faq_data_file'] ?? null);
-        $dataFaqs = $faqDataService->resolve($html);
+        $appRoot = (string) ($this->container->getVariable('app_root') ?? '');
+        $this->faqDataService->load($appRoot, $this->config['faq_data_file'] ?? null);
+        $dataFaqs = $this->faqDataService->resolve($html);
 
         $allFaqs = array_merge($faqs, $shortcodeFaqs, $dataFaqs);
 
@@ -143,37 +136,35 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
                     ]
                 ];
             }
-            // Store in metadata so it survives the MARKDOWN_CONVERTED → POST_RENDER boundary.
-            // The MarkdownRendererService only forwards 'html_content' and 'metadata' from
-            // MARKDOWN_CONVERTED results; top-level parameters are dropped.
-            $parameters['metadata']['aeo_faq_schema'] = $faqSchema;
+            // Store in metadata so it survives the MARKDOWN_CONVERTED → RENDER boundary:
+            // MarkdownRendererService only copies renderedContent/metadata back from the
+            // sub-event it fires for MARKDOWN_CONVERTED; extra is scoped to that sub-event
+            // and does not propagate back out.
+            $event->metadata['aeo_faq_schema'] = $faqSchema;
         }
 
-        $extractorService = $container->get(AeoExtractorService::class);
-        $summary = $metadata['aeo']['key_takeaways'] ?? $extractorService->extractSummary($html);
-        $parameters['aeo_summary'] = $summary;
+        $summary = $metadata['aeo']['key_takeaways'] ?? $this->extractorService->extractSummary($html);
+        $event->extra['aeo_summary'] = $summary;
 
         $this->faqShortcode->reset();
-
-        return $parameters;
     }
 
-    public function onPostRender(Container $container, array $parameters): array
+    #[EventListener('POST_RENDER', priority: 50)]
+    public function onPostRender(RenderEvent $event): void
     {
-        $schemaService = $container->get(SchemaGeneratorService::class);
-        $metadata = $parameters['metadata'] ?? [];
+        $metadata = $event->metadata;
         $noLlms = !empty($metadata['no_llms']);
 
-        $siteConfig  = $container->getVariable('site_config') ?? [];
-        $siteBaseUrl = rtrim((string)($container->getVariable('SITE_BASE_URL') ?? '/'), '/');
-        $appRoot     = rtrim((string)($container->getVariable('app_root') ?? ''), '/');
+        $siteConfig  = $this->container->getVariable('site_config') ?? [];
+        $siteBaseUrl = rtrim((string)($this->container->getVariable('SITE_BASE_URL') ?? '/'), '/');
+        $appRoot     = rtrim((string)($this->container->getVariable('app_root') ?? ''), '/');
 
         // Build the canonical HTML URL for this page once; reused for breadcrumb and llms.txt
-        $pageUrl = $parameters['file_url'] ?? '';
-        if (empty($pageUrl) && !empty($parameters['output_path']) && !empty($appRoot)) {
+        $pageUrl = $event->fileUrl;
+        if (empty($pageUrl) && !empty($event->outputPath) && !empty($appRoot)) {
             $publicPath = $appRoot . '/public/';
-            if (str_starts_with($parameters['output_path'], $publicPath)) {
-                $pageUrl = $siteBaseUrl . '/' . ltrim(substr($parameters['output_path'], strlen($publicPath)), '/');
+            if (str_starts_with($event->outputPath, $publicPath)) {
+                $pageUrl = $siteBaseUrl . '/' . ltrim(substr($event->outputPath, strlen($publicPath)), '/');
             }
         }
 
@@ -199,11 +190,11 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             $schema['publisher'] = $publisher;
         }
 
-        $scripts = $schemaService->generate($schema);
+        $scripts = $this->schemaService->generate($schema);
 
-        $faqSchema = $parameters['metadata']['aeo_faq_schema'] ?? $parameters['aeo_faq_schema'] ?? null;
+        $faqSchema = $event->metadata['aeo_faq_schema'] ?? null;
         if (!empty($faqSchema)) {
-            $scripts .= "\n" . $schemaService->generate($faqSchema);
+            $scripts .= "\n" . $this->schemaService->generate($faqSchema);
         }
 
         // BreadcrumbList — skip on the home page (index.html)
@@ -213,7 +204,10 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
             str_ends_with($pageUrl, '/index.html')
         );
         $pageTitle = $metadata['title'] ?? null;
-        if (!empty($pageUrl) && !$isHomePage && $pageTitle !== null && $pageTitle !== '' && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
+        if (
+            !empty($pageUrl) && !$isHomePage && $pageTitle !== null && $pageTitle !== ''
+            && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)
+        ) {
             $breadcrumb = [
                 '@context' => 'https://schema.org',
                 '@type' => 'BreadcrumbList',
@@ -232,7 +226,7 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
                     ],
                 ],
             ];
-            $scripts .= "\n" . $schemaService->generate($breadcrumb);
+            $scripts .= "\n" . $this->schemaService->generate($breadcrumb);
         }
 
         $scripts .= "\n<link rel=\"sitemap\" type=\"application/xml\" href=\"{$siteBaseUrl}/sitemap.xml\">";
@@ -242,57 +236,58 @@ class Feature implements FeatureInterface, ConfigurableFeatureInterface
         }
 
         // Inject the tags into the head of the document
-        if (isset($parameters['rendered_content'])) {
-            $parameters['rendered_content'] = str_replace('</head>', $scripts . "\n</head>", $parameters['rendered_content']);
+        if ($event->renderedContent !== null) {
+            $event->renderedContent = str_replace('</head>', $scripts . "\n</head>", $event->renderedContent);
         }
 
-        if (!$noLlms && isset($parameters['file_path']) && isset($parameters['output_path'])) {
-            $sourcePath = $parameters['file_path'];
+        if (!$noLlms && $event->filePath !== '' && $event->outputPath !== null) {
+            $sourcePath = $event->filePath;
             if (pathinfo($sourcePath, PATHINFO_EXTENSION) === 'md') {
-                $publicPath = $parameters['output_path'];
+                $publicPath = $event->outputPath;
                 $mdPublicPath = preg_replace('/\.html$/', '.md', $publicPath);
-
                 $sourceContent = file_get_contents($sourcePath);
-                $rawContent = preg_replace('/^---[\s\S]*?---[\r\n]+/', '', $sourceContent);
 
-                $dir = dirname($mdPublicPath);
-                if (!is_dir($dir)) {
-                    mkdir($dir, 0777, true);
+                if ($mdPublicPath !== null && $sourceContent !== false) {
+                    $rawContent = preg_replace('/^---[\s\S]*?---[\r\n]+/', '', $sourceContent);
+
+                    $dir = dirname($mdPublicPath);
+                    if (!is_dir($dir)) {
+                        mkdir($dir, 0777, true);
+                    }
+                    file_put_contents($mdPublicPath, trim($rawContent ?? ''));
                 }
-                file_put_contents($mdPublicPath, trim($rawContent ?? ''));
             }
         }
 
-        // Validate the URL. If it's empty, contains internal filesystem paths, has no title, or page is excluded, skip it entirely.
-        if (!$noLlms && !empty($pageUrl) && !empty($metadata['title']) && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)) {
+        // Validate the URL. If it's empty, contains internal filesystem paths,
+        // has no title, or page is excluded, skip it entirely.
+        if (
+            !$noLlms && !empty($pageUrl) && !empty($metadata['title'])
+            && !str_starts_with($pageUrl, '//') && !str_contains($pageUrl, $appRoot)
+        ) {
             $title = $metadata['title'];
-            $summary = $parameters['aeo_summary'] ?? $metadata['description'] ?? '';
+            $summary = $event->extra['aeo_summary'] ?? $metadata['description'] ?? '';
 
             // Point the AI directly to the clean .md copy we generated
             $llmsUrl = $pageUrl;
-            if (isset($parameters['file_path']) && pathinfo($parameters['file_path'], PATHINFO_EXTENSION) === 'md') {
-                $llmsUrl = preg_replace('/\.html$/', '.md', $pageUrl);
+            if ($event->filePath !== '' && pathinfo($event->filePath, PATHINFO_EXTENSION) === 'md') {
+                $llmsUrl = preg_replace('/\.html$/', '.md', $pageUrl) ?? $pageUrl;
             }
 
-            $llmsTxtService = $container->get(LlmsTxtGeneratorService::class);
-            $llmsTxtService->addPage($llmsUrl, $title, $summary);
+            $this->llmsTxtService->addPage($llmsUrl, $title, $summary);
         }
-
-        return $parameters;
     }
 
-    public function onPostLoop(Container $container, array $parameters): array
+    #[EventListener('POST_LOOP', priority: 50)]
+    public function onPostLoop(Event $event): void
     {
-        $llmsTxtService = $container->get(LlmsTxtGeneratorService::class);
-        $outputDir = $container->getVariable('OUTPUT_DIR');
+        $outputDir = $this->container->getVariable('OUTPUT_DIR');
 
-        if (is_string($outputDir) && $outputDir !== '' && $llmsTxtService->hasPages()) {
-            $siteConfig      = $container->getVariable('site_config') ?? [];
+        if (is_string($outputDir) && $outputDir !== '' && $this->llmsTxtService->hasPages()) {
+            $siteConfig      = $this->container->getVariable('site_config') ?? [];
             $siteName        = (string) ($siteConfig['site']['name'] ?? '');
             $siteDescription = (string) ($siteConfig['site']['tagline'] ?? $siteConfig['site']['description'] ?? '');
-            $llmsTxtService->generate($outputDir, $siteName, $siteDescription);
+            $this->llmsTxtService->generate($outputDir, $siteName, $siteDescription);
         }
-
-        return $parameters;
     }
 }

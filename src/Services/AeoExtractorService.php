@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Calevans\AnswerEngineOptimization\Services;
 
+use EICC\Utils\Log;
+
 class AeoExtractorService
 {
-    private $logger;
+    private ?Log $logger;
 
-    public function __construct($logger = null)
+    public function __construct(?Log $logger = null)
     {
         $this->logger = $logger;
     }

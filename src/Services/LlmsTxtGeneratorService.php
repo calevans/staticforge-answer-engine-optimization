@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Calevans\AnswerEngineOptimization\Services;
 
+use EICC\Utils\Log;
+
 class LlmsTxtGeneratorService
 {
-    private $logger;
+    private ?Log $logger;
     private array $pages = [];
 
-    public function __construct($logger = null)
+    public function __construct(?Log $logger = null)
     {
         $this->logger = $logger;
     }
